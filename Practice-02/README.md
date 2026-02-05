@@ -8,4 +8,5 @@ Topics covered in this practice:
 - Conditional statements (if / elif / else)
 - Loops (for and while)
 
-The practice contains clear examples to help understand decision-making and repetition in Python programs.
+The practice contains clear examples to help understand decision-making and repetition in Python programs
+
