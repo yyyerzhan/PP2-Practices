@@ -35,8 +35,8 @@ def upsert_user():
 
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(query, (name, phone))
-            conn.commit()
+            cur.execute(query,(name,phone))
+            cur.commit()
 
     print("✅ User added/updated")
 
