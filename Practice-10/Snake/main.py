@@ -1,188 +1,271 @@
 '''
-Snake
-Extend example project from lecture and add the following functionality:
-
-Checking for border (wall) collision and whether the snake is leaving the playing area
-Generate random position for food, so that it does not fall on a wall or a snake
-Add levels. For example, when the snake receives 3-4 foods or depending on score 
-Increase speed when the user passes to the next level
-Add counter to score and level
-Comment your code
+Snake Game — расширенная версия
+Добавлено:
+  1. Проверка столкновения со стенами
+  2. Генерация еды не на стене и не на змейке
+  3. Уровни (каждые 3 съеденных фрукта — новый уровень)
+  4. Увеличение скорости при переходе на новый уровень
+  5. Счётчик очков и уровня на экране
+  6. Комментарии к коду
 '''
+
 import pygame
 import time
 import random
 
-snake_speed = 15
+# ── Настройки окна ────────────────────────────────────────────────────────────
+WINDOW_X = 720
+WINDOW_Y = 480
+CELL = 10  # размер одной клетки в пикселях
 
-# размер окна
-window_x = 720
-window_y = 480
+# ── Настройки уровней и скорости ─────────────────────────────────────────────
+BASE_SPEED      = 10   # начальная скорость (FPS) на уровне 1
+SPEED_INCREMENT = 3    # прибавка к скорости за каждый уровень
+MAX_SPEED       = 40   # максимальная скорость (чтобы игра оставалась играбельной)
+FOOD_PER_LEVEL  = 3    # сколько фруктов нужно съесть для перехода на следующий уровень
 
-# определение цветов
-black = pygame.Color(0, 0, 0)
-white = pygame.Color(255, 255, 255)
-red = pygame.Color(255, 0, 0)
-green = pygame.Color(0, 255, 0)
-blue = pygame.Color(0, 0, 255)
+# ── Цвета ─────────────────────────────────────────────────────────────────────
+BLACK      = pygame.Color(0,   0,   0)
+WHITE      = pygame.Color(255, 255, 255)
+RED        = pygame.Color(255, 0,   0)
+GREEN      = pygame.Color(0,   200, 0)
+DARK_GREEN = pygame.Color(0,   150, 0)
+YELLOW     = pygame.Color(255, 220, 0)
+GRAY       = pygame.Color(40,  40,  40)
+WALL_COLOR = pygame.Color(80,  80,  80)
 
-# инициализация
+# ── Инициализация Pygame ──────────────────────────────────────────────────────
 pygame.init()
-
-# Инициализирование игрового окно
 pygame.display.set_caption('Змейка')
-game_window = pygame.display.set_mode((window_x, window_y))
-
-# Контроллер FPS (кадры в секунду)
+game_window = pygame.display.set_mode((WINDOW_X, WINDOW_Y))
 fps = pygame.time.Clock()
 
-# определение положения змеи по умолчанию
-snake_position = [100, 50]
 
-# определение первых 4 блоков тела змеи
-snake_body = [[100, 50],
-              [90, 50],
-              [80, 50],
-              [70, 50]
-              ]
+# ── Вспомогательные функции ───────────────────────────────────────────────────
 
-# fruit position
-fruit_position = [random.randrange(1, (window_x // 10)) * 10,
-                  random.randrange(1, (window_y // 10)) * 10]
+def get_wall_cells():
+    """
+    Возвращает множество координат клеток, которые являются стенами.
+    Стены — это граничный ряд/столбец клеток по периметру окна.
+    """
+    walls = set()
+    cols = WINDOW_X // CELL
+    rows = WINDOW_Y // CELL
+    for x in range(cols):
+        walls.add((x * CELL, 0))                    # верхняя стена
+        walls.add((x * CELL, (rows - 1) * CELL))    # нижняя стена
+    for y in range(rows):
+        walls.add((0, y * CELL))                     # левая стена
+        walls.add(((cols - 1) * CELL, y * CELL))    # правая стена
+    return walls
 
-fruit_spawn = True
-
-# установка направления змеи по умолчанию к
-# право
-direction = 'RIGHT'
-change_to = direction
-
-# начальная оценка
-score = 0
+WALL_CELLS = get_wall_cells()  # вычисляем один раз при запуске
 
 
-# отображение функции Score
-def show_score(choice, color, font, size) :
-    # создание объекта шрифта score_font
-    score_font = pygame.font.SysFont(font, size)
+def generate_food(snake_body):
+    """
+    Генерирует случайную позицию еды.
+    Еда НЕ должна появляться:
+      - на стене (граничные клетки)
+      - на теле змейки
+    Возвращает [x, y].
+    """
+    snake_set = set(map(tuple, snake_body))  # для быстрой проверки O(1)
 
-    # создать объект поверхности отображения
-    # score_surface
-    score_surface = score_font.render('Score : ' + str(score), True, color)
+    # Собираем все допустимые клетки (не стена, не тело змейки)
+    free_cells = []
+    for x in range(CELL, WINDOW_X - CELL, CELL):
+        for y in range(CELL, WINDOW_Y - CELL, CELL):
+            if (x, y) not in snake_set:
+                free_cells.append([x, y])
 
-    # создаем прямоугольный объект для текста
-    # поверхностный объект
-    score_rect = score_surface.get_rect()
+    if not free_cells:
+        return None  # поле полностью занято (маловероятно, но обрабатываем)
 
-    # отображение текста
-    game_window.blit(score_surface, score_rect)
+    return random.choice(free_cells)
 
 
-# функция завершения игры
-def game_over() :
-    # создание объекта шрифта my_font
-    my_font = pygame.font.SysFont('times new roman', 50)
+def draw_walls():
+    """Рисует стены по периметру игрового поля."""
+    cols = WINDOW_X // CELL
+    rows = WINDOW_Y // CELL
+    for x in range(cols):
+        pygame.draw.rect(game_window, WALL_COLOR, pygame.Rect(x * CELL, 0, CELL, CELL))
+        pygame.draw.rect(game_window, WALL_COLOR, pygame.Rect(x * CELL, (rows - 1) * CELL, CELL, CELL))
+    for y in range(1, rows - 1):
+        pygame.draw.rect(game_window, WALL_COLOR, pygame.Rect(0, y * CELL, CELL, CELL))
+        pygame.draw.rect(game_window, WALL_COLOR, pygame.Rect((cols - 1) * CELL, y * CELL, CELL, CELL))
 
-    # создание текстовой поверхности, на которой текст
-    # будет нарисовано
-    game_over_surface = my_font.render(
-        'Your Score is : ' + str(score), True, red)
 
-    # создать прямоугольный объект для текста
-    # surface object
-    game_over_rect = game_over_surface.get_rect()
+def show_hud(score, level, snake_speed):
+    """
+    Отображает HUD: счёт, уровень и текущую скорость в верхней части экрана.
+    """
+    font = pygame.font.SysFont('consolas', 18)
 
-    # установка положения текста
-    game_over_rect.midtop = (window_x / 2, window_y / 4)
+    score_surf = font.render(f'Score: {score}', True, WHITE)
+    level_surf = font.render(f'Level: {level}', True, YELLOW)
+    speed_surf = font.render(f'Speed: {snake_speed}', True, WHITE)
 
-    # blit нарисует текст на экране
-    game_window.blit(game_over_surface, game_over_rect)
+    game_window.blit(score_surf, (CELL + 5, 2))
+    game_window.blit(level_surf, (WINDOW_X // 2 - 40, 2))
+    game_window.blit(speed_surf, (WINDOW_X - 110, 2))
+
+
+def show_level_up(level):
+    """
+    Показывает сообщение о переходе на новый уровень в центре экрана.
+    Делает паузу 1 секунду чтобы игрок заметил.
+    """
+    font = pygame.font.SysFont('consolas', 40)
+    text = font.render(f'LEVEL {level}!', True, YELLOW)
+    rect = text.get_rect(center=(WINDOW_X // 2, WINDOW_Y // 2))
+    game_window.blit(text, rect)
     pygame.display.flip()
+    time.sleep(1)
 
-    # через 2 секунды мы выйдем из программы
-    time.sleep(2)
 
-    # деактивация библиотеки pygame
+def game_over(score):
+    """
+    Экран завершения игры: показывает финальный счёт и выходит.
+    """
+    game_window.fill(BLACK)
+    font_big  = pygame.font.SysFont('consolas', 48)
+    font_small = pygame.font.SysFont('consolas', 24)
+
+    over_surf  = font_big.render('GAME OVER', True, RED)
+    score_surf = font_small.render(f'Your score: {score}', True, WHITE)
+    quit_surf  = font_small.render('Closing in 3 seconds...', True, GRAY)
+
+    game_window.blit(over_surf,  over_surf.get_rect(center=(WINDOW_X // 2, WINDOW_Y // 2 - 50)))
+    game_window.blit(score_surf, score_surf.get_rect(center=(WINDOW_X // 2, WINDOW_Y // 2 + 10)))
+    game_window.blit(quit_surf,  quit_surf.get_rect(center=(WINDOW_X // 2, WINDOW_Y // 2 + 50)))
+
+    pygame.display.flip()
+    time.sleep(3)
     pygame.quit()
-
-    # quit the program
     quit()
 
 
-# Main Function
-while True :
+# ── Начальное состояние игры ──────────────────────────────────────────────────
 
-    # обработка ключевых событий
-    for event in pygame.event.get() :
-        if event.type == pygame.KEYDOWN :
-            if event.key == pygame.K_UP :
-                change_to = 'UP'
-            if event.key == pygame.K_DOWN :
-                change_to = 'DOWN'
-            if event.key == pygame.K_LEFT :
-                change_to = 'LEFT'
-            if event.key == pygame.K_RIGHT :
-                change_to = 'RIGHT'
+# Змейка начинает в центре поля, длина 4 блока, движется вправо
+snake_position = [100, 50]
+snake_body = [
+    [100, 50],
+    [90,  50],
+    [80,  50],
+    [70,  50],
+]
+
+direction = 'RIGHT'
+change_to = direction
+
+score       = 0
+level       = 1
+food_eaten  = 0                          # счётчик еды на текущем уровне
+snake_speed = BASE_SPEED                 # текущая скорость
+
+fruit_position = generate_food(snake_body)  # первая позиция еды
+fruit_spawn    = True
 
 
-    if change_to == 'UP' and direction != 'DOWN' :
-        direction = 'UP'
-    if change_to == 'DOWN' and direction != 'UP' :
-        direction = 'DOWN'
-    if change_to == 'LEFT' and direction != 'RIGHT' :
-        direction = 'LEFT'
-    if change_to == 'RIGHT' and direction != 'LEFT' :
-        direction = 'RIGHT'
+# ── Главный игровой цикл ──────────────────────────────────────────────────────
+while True:
 
-    # Перемещение змеи
-    if direction == 'UP' :
-        snake_position[1] -= 10
-    if direction == 'DOWN' :
-        snake_position[1] += 10
-    if direction == 'LEFT' :
-        snake_position[0] -= 10
-    if direction == 'RIGHT' :
-        snake_position[0] += 10
+    # Обработка событий клавиатуры
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            quit()
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_UP:    change_to = 'UP'
+            if event.key == pygame.K_DOWN:  change_to = 'DOWN'
+            if event.key == pygame.K_LEFT:  change_to = 'LEFT'
+            if event.key == pygame.K_RIGHT: change_to = 'RIGHT'
+            if event.key == pygame.K_ESCAPE:
+                pygame.quit()
+                quit()
 
-    # Механизм роста тела змеи
-    # если фрукты и змеи сталкиваются, то очки
-    # будет увеличено на 10
+    # Запрет разворота на 180° (нельзя сразу двигаться в противоположную сторону)
+    if change_to == 'UP'    and direction != 'DOWN':  direction = 'UP'
+    if change_to == 'DOWN'  and direction != 'UP':    direction = 'DOWN'
+    if change_to == 'LEFT'  and direction != 'RIGHT': direction = 'LEFT'
+    if change_to == 'RIGHT' and direction != 'LEFT':  direction = 'RIGHT'
+
+    # Движение змейки: обновляем позицию головы
+    if direction == 'UP':    snake_position[1] -= CELL
+    if direction == 'DOWN':  snake_position[1] += CELL
+    if direction == 'LEFT':  snake_position[0] -= CELL
+    if direction == 'RIGHT': snake_position[0] += CELL
+
+    # Добавляем новую голову в начало тела
     snake_body.insert(0, list(snake_position))
-    if snake_position[0] == fruit_position[0] and snake_position[1] == fruit_position[1] :
-        score += 10
+
+    # Проверяем, съела ли змейка фрукт
+    if snake_position == fruit_position:
+        score      += level * 10   # очки растут с уровнем
+        food_eaten += 1
         fruit_spawn = False
-    else :
+
+        # ── Проверка условия перехода на следующий уровень ──
+        if food_eaten >= FOOD_PER_LEVEL:
+            level      += 1
+            food_eaten  = 0
+
+            # Увеличиваем скорость, но не выше максимума
+            snake_speed = min(MAX_SPEED, BASE_SPEED + (level - 1) * SPEED_INCREMENT)
+
+            # Рисуем экран и показываем сообщение о новом уровне
+            game_window.fill(BLACK)
+            draw_walls()
+            show_level_up(level)
+
+    else:
+        # Фрукт не съеден — убираем хвост, длина остаётся прежней
         snake_body.pop()
 
-    if not fruit_spawn :
-        fruit_position = [random.randrange(1, (window_x // 10)) * 10,
-                          random.randrange(1, (window_y // 10)) * 10]
+    # Если фрукт был съеден — генерируем новый на допустимой позиции
+    if not fruit_spawn:
+        fruit_position = generate_food(snake_body)
+        if fruit_position is None:
+            # Поле полностью заполнено — победа (редкий случай)
+            game_over(score)
+        fruit_spawn = True
 
-    fruit_spawn = True
-    game_window.fill(black)
+    # ── Отрисовка кадра ──────────────────────────────────────────────────────
+    game_window.fill(BLACK)
 
-    for pos in snake_body :
-        pygame.draw.rect(game_window, green,
-                         pygame.Rect(pos[0], pos[1], 10, 10))
-    pygame.draw.rect(game_window, white, pygame.Rect(
-        fruit_position[0], fruit_position[1], 10, 10))
+    # Рисуем стены
+    draw_walls()
 
-    # Game Over conditions
-    if snake_position[0] < 0 or snake_position[0] > window_x - 10 :
-        game_over()
-    if snake_position[1] < 0 or snake_position[1] > window_y - 10 :
-        game_over()
+    # Рисуем тело змейки (голова чуть ярче)
+    for i, pos in enumerate(snake_body):
+        color = GREEN if i > 0 else DARK_GREEN
+        pygame.draw.rect(game_window, color, pygame.Rect(pos[0], pos[1], CELL, CELL))
 
-    # Touching the snake body
-    for block in snake_body[1 :] :
-        if snake_position[0] == block[0] and snake_position[1] == block[1] :
-            game_over()
+    # Рисуем еду
+    if fruit_position:
+        pygame.draw.rect(game_window, RED,
+                         pygame.Rect(fruit_position[0], fruit_position[1], CELL, CELL))
 
-    # displaying score countinuously
-    show_score(1, white, 'times new roman', 20)
+    # ── Проверка условий Game Over ────────────────────────────────────────────
 
-    # Refresh game screen
+    # 1. Столкновение со стеной: голова попала на граничную клетку
+    if tuple(snake_position) in WALL_CELLS:
+        game_over(score)
+
+    # 2. Выход за пределы окна (дополнительная защита)
+    if (snake_position[0] < 0 or snake_position[0] >= WINDOW_X or
+            snake_position[1] < 0 or snake_position[1] >= WINDOW_Y):
+        game_over(score)
+
+    # 3. Столкновение с собственным телом (проверяем со второго сегмента)
+    for block in snake_body[1:]:
+        if snake_position == block:
+            game_over(score)
+
+    # ── HUD и обновление экрана ───────────────────────────────────────────────
+    show_hud(score, level, snake_speed)
     pygame.display.update()
-
-    # Frame Per Second /Refresh Rate
     fps.tick(snake_speed)
