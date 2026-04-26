@@ -1,208 +1,329 @@
 '''
-Paint.
-Extend example project from https://nerdparadise.com/programming/pygame/part6 and add the following functionality:
-
-Draw rectangle
-Draw circle
-Eraser
-Color selection
+Paint — расширенная версия туториала nerdparadise.com/programming/pygame/part6
+Добавлено:
+  1. Рисование прямоугольника (Rectangle) — drag & drop
+  2. Рисование круга (Circle) — drag & drop
+  3. Ластик (Eraser)
+  4. Выбор цвета (Color Selection) — палитра в боковой панели
+  5. Комментарии к коду
 '''
+
 import pygame
+import math
 
 pygame.init()
-FPS = 120
-FramePerSec = pygame.time.Clock()
-# Setting window size
-win_x = 500
-win_y = 500
 
-win = pygame.display.set_mode((win_x, win_y))
+# ── Настройки окна ────────────────────────────────────────────────────────────
+SCREEN_WIDTH  = 600   # 400 холст + 200 панель
+SCREEN_HEIGHT = 600
+CANVAS_W      = 400   # ширина области рисования
+PANEL_X       = 400   # x-начало боковой панели
+
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption('Paint')
 
-# Class for drawing 
-class drawing(object):
+clock = pygame.time.Clock()
+FPS   = 120
 
-	def __init__(self):
-		self.color = (0, 0, 0)
-		self.width = 10
-		self.height = 10
-		self.rad = 6
-		self.tick = 0
-		self.time = 0
-		self.play = False
-		
-	# Drawing Function
-	def draw(self, win, pos):
-		pygame.draw.circle(win, self.color, (pos[0], pos[1]), self.rad)
-		if self.color == (255, 255, 255):
-			pygame.draw.circle(win, self.color, (pos[0], pos[1]), 20)
+# ── Цветовая палитра ──────────────────────────────────────────────────────────
+PALETTE = [
+    ((255,   0,   0), 'Red'),
+    ((  0,   0, 255), 'Blue'),
+    ((  0, 200,   0), 'Green'),
+    ((255, 165,   0), 'Orange'),
+    ((255, 255,   0), 'Yellow'),
+    ((128,   0, 128), 'Purple'),
+    ((  0,   0,   0), 'Black'),
+    ((139,  69,  19), 'Brown'),
+    ((255, 192, 203), 'Pink'),
+    ((  0, 255, 255), 'Cyan'),
+]
 
-	# detecting clicks
-	def click(self, win, list, list2):
-		pos = pygame.mouse.get_pos()
-
-		if pygame.mouse.get_pressed() == (1, 0, 0) and pos[0] < 400:
-			if pos[1] > 25:
-				self.draw(win, pos)
-		elif pygame.mouse.get_pressed() == (1, 0, 0):
-			for button in list:
-				if pos[0] > button.x and pos[0] < button.x + button.width:
-					if pos[1] > button.y and pos[1] < button.y + button.height:
-						self.color = button.color2
-			for button in list2:
-				if pos[0] > button.x and pos[0] < button.x + button.width:
-					if pos[1] > button.y and pos[1] < button.y + button.height:
-						if self.tick == 0:
-							if button.action == 1:
-								win.fill((255, 255, 255))
-								self.tick += 1
-							if button.action == 2 and self.rad > 4:
-								self.rad -= 1
-								self.tick += 1
-								pygame.draw.rect(
-									win, (255, 255, 255), (410, 308, 80, 35))
-
-							if button.action == 3 and self.rad < 20:
-								self.rad += 1
-								self.tick += 1
-								pygame.draw.rect(
-									win, (255, 255, 255), (410, 308, 80, 35))
-
-							if button.action == 5 and self.play == False:
-								self.play = True
-								
-								self.time += 1
-							if button.action == 6:
-								self.play = False
-								self.time = 0
-
-		for button in list2:
-			if button.action == 4:
-				button.text = str(self.rad)
-
-			if button.action == 7 and self.play == True:
-				button.text = str(40 - (player1.time // 100))
-			if button.action == 7 and self.play == False:
-				button.text = 'Time'
-
-# Class for buttons
-class button(object):
-
-	def __init__(self, x, y, width, height, color, color2, outline=0, action=0, text=''):
-		self.x = x
-		self.y = y
-		self.height = height
-		self.width = width
-		self.color = color
-		self.outline = outline
-		self.color2 = color2
-		self.action = action
-		self.text = text
-		
-# Class for drawing buttons
-	def draw(self, win):
-
-		pygame.draw.rect(win, self.color, (self.x, self.y,
-										self.width, self.height), self.outline)
-		font = pygame.font.SysFont('comicsans', 30)
-		text = font.render(self.text, 1, self.color2)
-		pygame.draw.rect(win, (255, 255, 255), (410, 446, 80, 35))
-		win.blit(text, (int(self.x+self.width/2-text.get_width()/2),
-						int(self.y+self.height/2-text.get_height()/2)))
+# ── Доступные инструменты ─────────────────────────────────────────────────────
+TOOLS = ['Pen', 'Rectangle', 'Circle', 'Eraser']
 
 
-def drawHeader(win):
-	# Drawing header space
-	pygame.draw.rect(win, (175, 171, 171), (0, 0, 500, 25))
-	pygame.draw.rect(win, (0, 0, 0), (0, 0, 400, 25), 2)
-	pygame.draw.rect(win, (0, 0, 0), (400, 0, 100, 25), 2)
+# ── Класс состояния приложения ────────────────────────────────────────────────
+class AppState:
+    def __init__(self):
+        self.color     = (0, 0, 0)    # текущий цвет рисования
+        self.tool      = 'Pen'        # текущий инструмент
+        self.pen_size  = 6            # размер пера/ластика
+        self.dragging  = False        # зажата ли ЛКМ
+        self.start_pos = None         # точка начала drag
 
-	# Printing header
-	font = pygame.font.SysFont('comicsans', 30)
+        # canvas — постоянная поверхность с рисунком.
+        # Предпросмотр фигур рисуется поверх неё, не изменяя её до отпускания кнопки.
+        self.canvas = pygame.Surface((CANVAS_W, SCREEN_HEIGHT))
+        self.canvas.fill((255, 255, 255))
 
-	canvasText = font.render('Пэйнт', 1, (0, 0, 0))
-	win.blit(canvasText, (int(200 - canvasText.get_width() / 2),
-						int(26 / 2 - canvasText.get_height() / 2) + 2))
+    def on_canvas(self, pos):
+        """Проверяет, находится ли позиция внутри области холста."""
+        return 0 <= pos[0] < CANVAS_W and 25 <= pos[1] < SCREEN_HEIGHT
 
-	toolsText = font.render('Tools', 1, (0, 0, 0))
-	win.blit(toolsText, (int(450 - toolsText.get_width() / 2),
-						int(26 / 2 - toolsText.get_height() / 2 + 2)))
+    def handle_event(self, event):
+        """Обрабатывает события мыши для рисования."""
+        pos = pygame.mouse.get_pos()
+
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self.on_canvas(pos):
+                self.dragging  = True
+                self.start_pos = pos
+
+        elif event.type == pygame.MOUSEMOTION and self.dragging:
+            if self.on_canvas(pos):
+                # Перо и ластик рисуют непрерывно во время движения
+                if self.tool == 'Pen':
+                    pygame.draw.circle(self.canvas, self.color, pos, self.pen_size)
+                elif self.tool == 'Eraser':
+                    # Ластик закрашивает белым кружком увеличенного радиуса
+                    pygame.draw.circle(self.canvas, (255, 255, 255), pos, self.pen_size * 3)
+
+        elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            if self.dragging and self.start_pos:
+                end = pos
+                # Фигуры фиксируются на холсте только при отпускании кнопки
+                if self.tool == 'Rectangle':
+                    rect = self._make_rect(self.start_pos, end)
+                    pygame.draw.rect(self.canvas, self.color, rect, 2)
+                elif self.tool == 'Circle':
+                    cx, cy, r = self._make_circle(self.start_pos, end)
+                    pygame.draw.circle(self.canvas, self.color, (cx, cy), max(1, r), 2)
+            self.dragging  = False
+            self.start_pos = None
+
+    def _make_rect(self, start, end):
+        """Вычисляет pygame.Rect по двум угловым точкам (порядок не важен)."""
+        x = min(start[0], end[0])
+        y = min(start[1], end[1])
+        w = abs(end[0] - start[0])
+        h = abs(end[1] - start[1])
+        return pygame.Rect(x, y, w, h)
+
+    def _make_circle(self, start, end):
+        """
+        Вычисляет центр и радиус круга.
+        Центр — середина между start и end, радиус — половина расстояния.
+        """
+        cx = (start[0] + end[0]) // 2
+        cy = (start[1] + end[1]) // 2
+        r  = int(math.hypot(end[0] - start[0], end[1] - start[1]) / 2)
+        return cx, cy, r
+
+    def draw_preview(self, surface):
+        """
+        Рисует полупрозрачный предпросмотр фигуры во время drag'а.
+        Перо и ластик не нуждаются в предпросмотре — они уже пишут на canvas.
+        """
+        if not self.dragging or self.start_pos is None:
+            return
+        if self.tool in ('Pen', 'Eraser'):
+            return
+
+        end     = pygame.mouse.get_pos()
+        preview = pygame.Surface((CANVAS_W, SCREEN_HEIGHT), pygame.SRCALPHA)
+        r, g, b = self.color
+
+        if self.tool == 'Rectangle':
+            rect = self._make_rect(self.start_pos, end)
+            pygame.draw.rect(preview, (r, g, b, 150), rect, 2)
+
+        elif self.tool == 'Circle':
+            cx, cy, radius = self._make_circle(self.start_pos, end)
+            if radius > 0:
+                pygame.draw.circle(preview, (r, g, b, 150), (cx, cy), radius, 2)
+
+        surface.blit(preview, (0, 0))
 
 
-def draw(win):
-	player1.click(win, Buttons_color, Buttons_other)
+# ── Класс кнопки ──────────────────────────────────────────────────────────────
+class Button:
+    def __init__(self, x, y, w, h, color, label='', label_color=(0, 0, 0), tag=None):
+        self.rect        = pygame.Rect(x, y, w, h)
+        self.color       = color        # цвет фона кнопки
+        self.label       = label
+        self.label_color = label_color
+        self.tag         = tag          # произвольное значение (имя инструмента, цвет…)
+        self.active      = False        # активна ли кнопка (подсветка)
 
-	pygame.draw.rect(win, (0, 0, 0), (400, 0, 100, 500),
-					2) # Drawing button space
-	pygame.draw.rect(win, (255, 255, 255), (400, 0, 100, 500),)
-	pygame.draw.rect(win, (0, 0, 0), (0, 0, 400, 500),
-					2) # Drawing canvas space
-	drawHeader(win)
+    def draw(self, surface, font):
+        pygame.draw.rect(surface, self.color, self.rect)
+        # Активная кнопка — белая рамка; неактивная — чёрная
+        border = (255, 255, 255) if self.active else (0, 0, 0)
+        pygame.draw.rect(surface, border, self.rect, 2)
+        if self.label:
+            text = font.render(self.label, True, self.label_color)
+            surface.blit(text, text.get_rect(center=self.rect.center))
 
-	for button in Buttons_color:
-		button.draw(win)
-
-	for button in Buttons_other:
-		button.draw(win)
-
-	pygame.display.update()
-
-
-def main_loop():
-	run = True
-	while run:
-		keys = pygame.key.get_pressed()
-		for event in pygame.event.get():
-			if event.type == pygame.QUIT or keys[pygame.K_ESCAPE]:
-				run = False
-
-		draw(win)
-
-		if 0 < player1.tick < 40:
-			player1.tick += 1
-		else:
-			player1.tick = 0
-
-		if 0 < player1.time < 4001:
-			player1.time += 1
-		elif 4000 < player1.time < 4004:
-
-			player1.time = 4009
-		else:
-			player1.time = 0
-			player1.play = False
-
-	pygame.quit()
+    def hit(self, pos):
+        """Возвращает True если pos внутри кнопки."""
+        return self.rect.collidepoint(pos)
 
 
+# ── Построение кнопок панели ──────────────────────────────────────────────────
+def build_buttons():
+    """
+    Создаёт три группы кнопок:
+      color_btns — цветовая палитра (два столбца)
+      tool_btns  — инструменты
+      util_btns  — утилиты (Clear, размер пера +/-)
+    Возвращает (color_btns, tool_btns, util_btns).
+    """
+    color_btns = []
+    tool_btns  = []
+    util_btns  = []
 
-player1 = drawing()
-# Fill colored to our paint
-win.fill((255, 255, 255))
-pos = (0, 0)
+    # ── Палитра: сетка 2 × N ─────────────────────────────────────────────────
+    btn_size = 44
+    gap      = 4
+    cols     = 2
+    for i, (color, name) in enumerate(PALETTE):
+        col = i % cols
+        row = i // cols
+        x   = PANEL_X + 6 + col * (btn_size + gap)
+        y   = 30 + row * (btn_size + gap)
+        # Белая кнопка имеет чёрную рамку чтобы её было видно
+        lbl_c = (0, 0, 0) if color == (255, 255, 255) else color
+        b = Button(x, y, btn_size, btn_size, color,
+                   label_color=lbl_c, tag=('color', color))
+        color_btns.append(b)
 
-# Defining color buttons
-redButton = button(453, 30, 40, 40, (255, 0, 0), (255, 0, 0))
-blueButton = button(407, 30, 40, 40, (0, 0, 255), (0, 0, 255))
-greenButton = button(407, 76, 40, 40, (0, 255, 0), (0, 255, 0))
-orangeButton = button(453, 76, 40, 40, (255, 192, 0), (255, 192, 0))
-yellowButton = button(407, 122, 40, 40, (255, 255, 0), (255, 255, 0))
-purpleButton = button(453, 122, 40, 40, (112, 48, 160), (112, 48, 160))
-blackButton = button(407, 168, 40, 40, (0, 0, 0), (0, 0, 0))
-whiteButton = button(453, 168, 40, 40, (0, 0, 0), (255, 255, 255), 1)
+    # ── Инструменты ───────────────────────────────────────────────────────────
+    palette_rows = math.ceil(len(PALETTE) / cols)
+    tool_y_start = 30 + palette_rows * (btn_size + gap) + 10
+    for i, tool_name in enumerate(TOOLS):
+        y = tool_y_start + i * 38
+        b = Button(PANEL_X + 6, y, 188, 34,
+                   (201, 201, 201), label=tool_name, tag=('tool', tool_name))
+        tool_btns.append(b)
 
-# Defining other buttons
-clrButton = button(407, 214, 86, 40, (201, 201, 201), (0, 0, 0), 0, 1, 'Clear')
+    # Первый инструмент (Pen) активен по умолчанию
+    tool_btns[0].active = True
 
-smallerButton = button(407, 260, 40, 40, (201, 201, 201), (0, 0, 0), 0, 2, '-')
-biggerButton = button(453, 260, 40, 40, (201, 201, 201), (0, 0, 0), 0, 3, '+')
-sizeDisplay = button(407, 306, 86, 40, (0, 0, 0), (0, 0, 0), 1, 4, 'Size')
+    # ── Утилиты ───────────────────────────────────────────────────────────────
+    util_y = tool_y_start + len(TOOLS) * 38 + 10
+    util_btns.append(Button(PANEL_X + 6, util_y,       188, 34,
+                            (201, 201, 201), label='Clear',   tag='clear'))
+    util_btns.append(Button(PANEL_X + 6, util_y + 42,   90, 34,
+                            (201, 201, 201), label='–  Size', tag='size_down'))
+    util_btns.append(Button(PANEL_X + 104, util_y + 42, 90, 34,
+                            (201, 201, 201), label='+ Size',  tag='size_up'))
+
+    return color_btns, tool_btns, util_btns
 
 
-Buttons_color = [blueButton, redButton, greenButton, orangeButton,
-				yellowButton, purpleButton, blackButton, whiteButton]
-Buttons_other = [clrButton, smallerButton, biggerButton,
-				sizeDisplay]
+# ── Отрисовка заголовка ───────────────────────────────────────────────────────
+def draw_header(surface, state, font):
+    # Серая полоска сверху
+    pygame.draw.rect(surface, (175, 171, 171), (0, 0, SCREEN_WIDTH, 25))
+    pygame.draw.rect(surface, (0, 0, 0), (0, 0, CANVAS_W, 25), 2)
+    pygame.draw.rect(surface, (0, 0, 0), (CANVAS_W, 0, SCREEN_WIDTH - CANVAS_W, 25), 2)
 
-main_loop()
-FramePerSec.tick(FPS)
+    # Название холста
+    t = font.render('Пэйнт', True, (0, 0, 0))
+    surface.blit(t, t.get_rect(center=(CANVAS_W // 2, 13)))
+
+    # Текущий инструмент + размер
+    info = font.render(f'{state.tool}  size:{state.pen_size}', True, (0, 0, 0))
+    surface.blit(info, info.get_rect(center=(PANEL_X + (SCREEN_WIDTH - PANEL_X) // 2, 13)))
+
+
+# ── Главный цикл ──────────────────────────────────────────────────────────────
+def main():
+    state = AppState()
+    font  = pygame.font.SysFont('comicsans', 18)
+
+    color_btns, tool_btns, util_btns = build_buttons()
+
+    run = True
+    while run:
+        keys = pygame.key.get_pressed()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT or keys[pygame.K_ESCAPE]:
+                run = False
+
+            # Передаём событие логике рисования
+            state.handle_event(event)
+
+            # Клики по кнопкам панели
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                pos = event.pos
+
+                # Цветовые кнопки — меняем текущий цвет
+                for btn in color_btns:
+                    if btn.hit(pos):
+                        state.color = btn.tag[1]
+
+                # Кнопки инструментов — меняем инструмент
+                for btn in tool_btns:
+                    if btn.hit(pos):
+                        state.tool = btn.tag[1]
+                        for b in tool_btns:
+                            b.active = False
+                        btn.active = True
+
+                # Утилиты
+                for btn in util_btns:
+                    if btn.hit(pos):
+                        if btn.tag == 'clear':
+                            state.canvas.fill((255, 255, 255))
+                        elif btn.tag == 'size_down' and state.pen_size > 1:
+                            state.pen_size -= 1
+                        elif btn.tag == 'size_up' and state.pen_size < 40:
+                            state.pen_size += 1
+
+        # ── Отрисовка кадра ──────────────────────────────────────────────────
+
+        screen.fill((220, 220, 220))
+
+        # 1. Постоянный холст
+        screen.blit(state.canvas, (0, 0))
+
+        # 2. Предпросмотр фигуры поверх холста (только Rectangle / Circle)
+        state.draw_preview(screen)
+
+        # 3. Курсор пера / ластика (кольцо вокруг мыши)
+        mx, my = pygame.mouse.get_pos()
+        if state.tool == 'Pen':
+            pygame.draw.circle(screen, (150, 150, 150), (mx, my), state.pen_size, 1)
+        elif state.tool == 'Eraser':
+            pygame.draw.rect(screen, (150, 150, 150),
+                             pygame.Rect(mx - state.pen_size * 3,
+                                         my - state.pen_size * 3,
+                                         state.pen_size * 6,
+                                         state.pen_size * 6), 1)
+
+        # 4. Боковая панель
+        pygame.draw.rect(screen, (230, 230, 230),
+                         (PANEL_X, 0, SCREEN_WIDTH - PANEL_X, SCREEN_HEIGHT))
+        pygame.draw.rect(screen, (0, 0, 0),
+                         (PANEL_X, 0, SCREEN_WIDTH - PANEL_X, SCREEN_HEIGHT), 2)
+
+        # 5. Цветной индикатор выбранного цвета
+        pygame.draw.rect(screen, state.color,
+                         pygame.Rect(PANEL_X + 6, SCREEN_HEIGHT - 44, 188, 38))
+        pygame.draw.rect(screen, (0, 0, 0),
+                         pygame.Rect(PANEL_X + 6, SCREEN_HEIGHT - 44, 188, 38), 2)
+
+        # 6. Кнопки
+        for btn in color_btns:
+            btn.draw(screen, font)
+        for btn in tool_btns:
+            btn.draw(screen, font)
+        for btn in util_btns:
+            btn.draw(screen, font)
+
+        # 7. Заголовок (поверх всего)
+        draw_header(screen, state, font)
+
+        # 8. Рамка холста
+        pygame.draw.rect(screen, (0, 0, 0), (0, 0, CANVAS_W, SCREEN_HEIGHT), 2)
+
+        pygame.display.flip()
+        clock.tick(FPS)
+
+    pygame.quit()
+
+
+main()
