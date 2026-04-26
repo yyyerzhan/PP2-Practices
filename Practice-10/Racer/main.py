@@ -106,15 +106,11 @@ car_sprites.add(P1, E1)
 
 all_sprites = pygame.sprite.Group()
 all_sprites.add(P1, E1, coin)
-#New User event
-inc_speed = pygame.USEREVENT + 1
-pygame.time.set_timer(inc_speed, 1000)
+
 
 
 while loop:
     for event in pygame.event.get():
-        if event.type == inc_speed:
-            speed += 1
 
         if event.type == pygame.QUIT:
             loop = False
