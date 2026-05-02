@@ -427,13 +427,58 @@ def menu_search():
         paginated_browse()
 
 
+def add_contact():
+    """Add a new contact directly from the console."""
+    print("\n─── Add New Contact ───")
+    name  = input("Name: ").strip()
+    if not name:
+        print("✗ Name cannot be empty.")
+        return
+    email = input("Email (leave blank to skip): ").strip() or None
+    bday  = input("Birthday YYYY-MM-DD (leave blank to skip): ").strip() or None
+    group = input("Group [Family/Work/Friend/Other] (leave blank to skip): ").strip() or None
+
+    # Optional first phone number
+    phone = input("Phone number (leave blank to skip): ").strip()
+    ptype = None
+    if phone:
+        ptype = _ask("Phone type [home/work/mobile]: ", choices=["home", "work", "mobile"])
+
+    phone_list = [{"phone": phone, "type": ptype}] if phone else []
+
+    conn = get_connection()
+    try:
+        with conn:
+            with get_cursor(conn) as cur:
+                ok = _upsert_contact(
+                    cur,
+                    name       = name,
+                    email      = email,
+                    birthday   = bday,
+                    group_name = group,
+                    phone_list = phone_list,
+                    overwrite  = False,
+                )
+        if ok:
+            print(f"✓ Contact '{name}' added successfully.")
+        else:
+            print(f"✗ Contact '{name}' already exists.")
+    except Exception as e:
+        print(f"✗ Error: {e}")
+    finally:
+        conn.close()
+
+
 def menu_phones():
     print("\n─── Phone Management ───")
-    print("  1. Add phone to contact  [add_phone procedure]")
+    print("  1. Add new contact")
+    print("  2. Add phone to existing contact  [add_phone procedure]")
     print("  0. Back")
-    choice = _ask("Choice: ", choices=["0", "1"])
+    choice = _ask("Choice: ", choices=["0", "1", "2"])
 
     if choice == "1":
+        add_contact()
+    elif choice == "2":
         cname = input("Contact name: ").strip()
         phone = input("Phone number: ").strip()
         ptype = _ask("Type [home/work/mobile]: ", choices=["home", "work", "mobile"])
